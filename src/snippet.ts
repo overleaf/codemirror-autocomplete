@@ -1,6 +1,6 @@
 import {Decoration, DecorationSet, WidgetType, EditorView, keymap, KeyBinding} from "@codemirror/view"
 import {StateField, StateEffect, ChangeDesc, EditorState, EditorSelection,
-        Transaction, TransactionSpec, Text, StateCommand, Prec, Facet, MapMode} from "@codemirror/state"
+        Transaction, Text, StateCommand, Prec, Facet, MapMode} from "@codemirror/state"
 import {indentUnit} from "@codemirror/language"
 import {baseTheme} from "./theme"
 import {Completion, pickedCompletion} from "./completion"
@@ -27,7 +27,7 @@ class Snippet {
               readonly fieldPositions: readonly FieldPos[]) {}
 
   instantiate(state: EditorState, pos: number) {
-    let text = [], lineStart = [pos]
+    let text: string[] = [], lineStart = [pos]
     let lineObj = state.doc.lineAt(pos), baseIndent = /^\s*/.exec(lineObj.text)![0]
     for (let line of this.lines) {
       if (text.length) {
@@ -167,18 +167,48 @@ function fieldSelection(ranges: readonly FieldRange[], field: number) {
 export function snippet(template: string) {
   let snippet = Snippet.parse(template)
   return (editor: {state: EditorState, dispatch: (tr: Transaction) => void}, completion: Completion | null, from: number, to: number) => {
-    let {text, ranges} = snippet.instantiate(editor.state, from)
-    let spec: TransactionSpec = {
-      changes: {from, to, insert: Text.of(text)},
+    let {main} = editor.state.selection, fromOff = from - main.from, toOff = to - main.from
+    let ranges: FieldRange[] = []
+    let totalOffset = 0
+    let spec = {
+      ...editor.state.changeByRange(range => {
+        if (range != main && from != to &&
+            editor.state.sliceDoc(range.from + fromOff, range.from + toOff) != editor.state.sliceDoc(from, to))
+          return {range}
+        let {text, ranges: fieldRanges} = snippet.instantiate(editor.state, range.from + fromOff)
+        let change = {
+          from: range.from + fromOff,
+          to: range.from + toOff,
+          insert: Text.of(text)
+        }
+        let originalTo = change.to
+        let offset = change.insert.length + fromOff
+        if (completion.extend) {
+          completion.extend(editor.state, change)
+          offset += originalTo - change.to
+        }
+        for (const fieldRange of fieldRanges) {
+          ranges.push(new FieldRange(fieldRange.field, fieldRange.from + totalOffset, fieldRange.to + totalOffset))
+        }
+        totalOffset += offset
+        return {
+          changes: change,
+          range: EditorSelection.cursor(change.from + change.insert.length)
+        }
+      }),
       scrollIntoView: true,
-      annotations: completion ? pickedCompletion.of(completion) : undefined
+      annotations: completion ? pickedCompletion.of(completion) : undefined,
+      effects: [],
     }
+
     if (ranges.length) spec.selection = fieldSelection(ranges, 0)
+
     if (ranges.length > 1) {
       let active = new ActiveSnippet(ranges, 0)
-      let effects: StateEffect<unknown>[] = spec.effects = [setActive.of(active)]
-      if (editor.state.field(snippetState, false) === undefined)
-        effects.push(StateEffect.appendConfig.of([snippetState, addSnippetKeymap, snippetPointerHandler, baseTheme]))
+      spec.effects.push(setActive.of(active))
+      if (editor.state.field(snippetState, false) === undefined) {
+        spec.effects.push(StateEffect.appendConfig.of([snippetState, addSnippetKeymap, snippetPointerHandler, baseTheme]))
+      }
     }
     editor.dispatch(editor.state.update(spec))
   }
