@@ -2,7 +2,7 @@ import {EditorView, KeyBinding} from "@codemirror/view"
 import {EditorState, EditorSelection, Transaction, Extension,
         StateCommand, StateField, StateEffect, MapMode, CharCategory,
         Text, codePointAt, fromCodePoint, codePointSize,
-        RangeSet, RangeValue} from "@codemirror/state"
+        RangeSet, RangeValue, SelectionRange} from "@codemirror/state"
 import {syntaxTree} from "@codemirror/language"
 
 /// Configures bracket closing behavior for a syntax (via
@@ -20,12 +20,22 @@ export interface CloseBracketConfig {
   /// When determining whether a given node may be a string, recognize
   /// these prefixes before the opening quote.
   stringPrefixes?: string[]
+  /// An optional callback for overriding the content that's inserted
+  /// based on surrounding characters
+  // added by Overleaf
+  buildInsert?: (
+      state: EditorState,
+      range: SelectionRange,
+      open: string,
+      close: string
+  ) => string
 }
 
 const defaults: Required<CloseBracketConfig> = {
   brackets: ["(", "[", "{", "'", '"'],
   before: ")]}:;>",
-  stringPrefixes: []
+  stringPrefixes: [],
+  buildInsert: (state, range, open, close) => open + close,
 }
 
 const closeBracketEffect = StateEffect.define<number>({
@@ -128,8 +138,8 @@ export function insertBracket(state: EditorState, bracket: string): Transaction 
   for (let tok of tokens) {
     let closed = closing(codePointAt(tok, 0))
     if (bracket == tok)
-      return closed == tok ? handleSame(state, tok, tokens.indexOf(tok + tok + tok) > -1, conf) 
-        : handleOpen(state, tok, closed, conf.before || defaults.before)
+      return closed == tok ? handleSame(state, tok, tokens.indexOf(tok + tok) > -1, tokens.indexOf(tok + tok + tok) > -1, conf)
+        : handleOpen(state, tok, closed, conf.before || defaults.before, conf)
     if (bracket == closed && closedBracketAt(state, state.selection.main.from))
       return handleClose(state, tok, closed)
   }
@@ -154,17 +164,20 @@ export function prevChar(doc: Text, pos: number) {
   return codePointSize(codePointAt(prev, 0)) == prev.length ? prev : prev.slice(1)
 }
 
-function handleOpen(state: EditorState, open: string, close: string, closeBefore: string) {
+function handleOpen(state: EditorState, open: string, close: string, closeBefore: string, config: CloseBracketConfig) {
+  let buildInsert = config.buildInsert || defaults.buildInsert
   let dont = null, changes = state.changeByRange(range => {
     if (!range.empty)
       return {changes: [{insert: open, from: range.from}, {insert: close, from: range.to}],
               effects: closeBracketEffect.of(range.to + open.length),
               range: EditorSelection.range(range.anchor + open.length, range.head + open.length)}
     let next = nextChar(state.doc, range.head)
-    if (!next || /\s/.test(next) || closeBefore.indexOf(next) > -1)
-      return {changes: {insert: open + close, from: range.head},
-              effects: closeBracketEffect.of(range.head + open.length),
+    if (!next || /\s/.test(next) || closeBefore.indexOf(next) > -1) {
+      const insert = buildInsert(state, range, open, close) ?? open + close
+      return {changes: {insert, from: range.head},
+              effects: insert === open ? [] : closeBracketEffect.of(range.head + open.length),
               range: EditorSelection.cursor(range.head + open.length)}
+    }
     return {range: dont = range}
   })
   return dont ? null : state.update(changes, {
@@ -188,18 +201,33 @@ function handleClose(state: EditorState, _open: string, close: string) {
 
 // Handles cases where the open and close token are the same, and
 // possibly triple quotes (as in `"""abc"""`-style quoting).
-function handleSame(state: EditorState, token: string, allowTriple: boolean, config: CloseBracketConfig) {
+function handleSame(state: EditorState, token: string, allowDouble: boolean, allowTriple: boolean, config: CloseBracketConfig) {
   let stringPrefixes = config.stringPrefixes || defaults.stringPrefixes
+  let buildInsert = config.buildInsert || defaults.buildInsert
   let dont = null, changes = state.changeByRange(range => {
     if (!range.empty)
       return {changes: [{insert: token, from: range.from}, {insert: token, from: range.to}],
               effects: closeBracketEffect.of(range.to + token.length),
               range: EditorSelection.range(range.anchor + token.length, range.head + token.length)}
     let pos = range.head, next = nextChar(state.doc, pos), start
-    if (next == token) {
+    if (allowTriple && state.sliceDoc(pos - 2 * token.length, pos) == token + token &&
+               (start = canStartStringAt(state, pos - 2 * token.length, stringPrefixes)) > -1 &&
+               nodeStart(state, start)) {
+      return {changes: {insert: token + token + token + token, from: pos},
+              effects: closeBracketEffect.of(pos + token.length),
+              range: EditorSelection.cursor(pos + token.length)}
+    } else if (allowDouble && state.sliceDoc(pos - token.length, pos) == token &&
+        (start = canStartStringAt(state, pos - token.length, stringPrefixes)) > -1 &&
+        nodeStart(state, start)) {
+      let insert = buildInsert(state, range, token, token) ?? token + token
+      return {changes: {insert, from: pos},
+              effects: insert === token ? [] : closeBracketEffect.of(pos + token.length),
+              range: EditorSelection.cursor(pos + token.length)}
+    } else if (next == token) {
       if (nodeStart(state, pos)) {
-        return {changes: {insert: token + token, from: pos},
-                effects: closeBracketEffect.of(pos + token.length),
+        let insert = buildInsert(state, range, token, token) ?? token + token
+        return {changes: {insert, from: pos},
+                effects: insert === token ? [] : closeBracketEffect.of(pos + token.length),
                 range: EditorSelection.cursor(pos + token.length)}
       } else if (closedBracketAt(state, pos)) {
         let isTriple = allowTriple && state.sliceDoc(pos, pos + token.length * 3) == token + token + token
@@ -207,17 +235,13 @@ function handleSame(state: EditorState, token: string, allowTriple: boolean, con
         return {changes: {from: pos, to: pos + content.length, insert: content},
                 range: EditorSelection.cursor(pos + content.length)}
       }
-    } else if (allowTriple && state.sliceDoc(pos - 2 * token.length, pos) == token + token &&
-               (start = canStartStringAt(state, pos - 2 * token.length, stringPrefixes)) > -1 &&
-               nodeStart(state, start)) {
-      return {changes: {insert: token + token + token + token, from: pos},
-              effects: closeBracketEffect.of(pos + token.length),
-              range: EditorSelection.cursor(pos + token.length)}
     } else if (state.charCategorizer(pos)(next) != CharCategory.Word) {
-      if (canStartStringAt(state, pos, stringPrefixes) > -1 && !probablyInString(state, pos, token, stringPrefixes))
-        return {changes: {insert: token + token, from: pos},
-                effects: closeBracketEffect.of(pos + token.length),
+      if (canStartStringAt(state, pos, stringPrefixes) > -1 && !probablyInString(state, pos, token, stringPrefixes)) {
+        const insert = buildInsert(state, range, token, token) ?? token + token
+        return {changes: {insert, from: pos},
+                effects: insert === token ? [] : closeBracketEffect.of(pos + token.length),
                 range: EditorSelection.cursor(pos + token.length)}
+      }
     }
     return {range: dont = range}
   })
