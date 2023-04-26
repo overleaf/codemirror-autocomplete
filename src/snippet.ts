@@ -1,6 +1,6 @@
 import {Decoration, DecorationSet, WidgetType, EditorView, keymap, KeyBinding} from "@codemirror/view"
 import {StateField, StateEffect, ChangeDesc, EditorState, EditorSelection,
-        Transaction, TransactionSpec, Text, StateCommand, Prec, Facet, MapMode} from "@codemirror/state"
+        Transaction, StateCommand, Prec, Facet, MapMode, Text} from "@codemirror/state"
 import {indentUnit} from "@codemirror/language"
 import {baseTheme} from "./theme"
 import {Completion, pickedCompletion} from "./completion"
@@ -27,7 +27,7 @@ class Snippet {
               readonly fieldPositions: readonly FieldPos[]) {}
 
   instantiate(state: EditorState, pos: number) {
-    let text = [], lineStart = [pos]
+    let text: string[] = [], lineStart = [pos]
     let lineObj = state.doc.lineAt(pos), baseIndent = /^\s*/.exec(lineObj.text)![0]
     for (let line of this.lines) {
       if (text.length) {
@@ -167,18 +167,50 @@ function fieldSelection(ranges: readonly FieldRange[], field: number) {
 export function snippet(template: string) {
   let snippet = Snippet.parse(template)
   return (editor: {state: EditorState, dispatch: (tr: Transaction) => void}, completion: Completion | null, from: number, to: number) => {
-    let {text, ranges} = snippet.instantiate(editor.state, from)
-    let spec: TransactionSpec = {
-      changes: {from, to, insert: Text.of(text)},
+    let allRanges: FieldRange[] = []
+    // note: similar to insertCompletionText
+    // let {main} = editor.state.selection
+    let len = to - from
+    let spec = {
+      ...editor.state.changeByRange(range => {
+        // if (range != main && len &&
+        //     editor.state.sliceDoc(range.from - len, range.from + to - main.from) != editor.state.sliceDoc(from, to))
+        //   return {range}
+        let {text, ranges} = snippet.instantiate(editor.state, range.from - len)
+        allRanges.push(...ranges)
+        let change = {
+          from: range.from - len,
+          // to: to == main.from ? range.to : range.from + to - main.from,
+          to: range.to,
+          insert: Text.of(text)
+        }
+        if (completion.extend) {
+          completion.extend(editor.state, change)
+        }
+        return {
+          changes: change,
+          // range: EditorSelection.cursor(change.from + change.insert.length)
+        }
+      }),
       scrollIntoView: true,
-      annotations: completion ? pickedCompletion.of(completion) : undefined
+      annotations: completion ? pickedCompletion.of(completion) : undefined,
+      effects: [],
     }
-    if (ranges.length) spec.selection = fieldSelection(ranges, 0)
-    if (ranges.length > 1) {
-      let active = new ActiveSnippet(ranges, 0)
-      let effects: StateEffect<unknown>[] = spec.effects = [setActive.of(active)]
-      if (editor.state.field(snippetState, false) === undefined)
-        effects.push(StateEffect.appendConfig.of([snippetState, addSnippetKeymap, snippetPointerHandler, baseTheme]))
+
+    // const ranges = allRanges
+    const ranges = allRanges.map(range => range.map(spec.changes))
+    // const ranges = allRanges.map(range => range.map(spec.changes))
+
+    if (ranges.length > 0) {
+      spec.selection = fieldSelection(ranges, 0)
+
+      if (ranges.length > 1) {
+        let active = new ActiveSnippet(ranges, 0)
+        spec.effects.push(setActive.of(active))
+        if (editor.state.field(snippetState, false) === undefined) {
+          spec.effects.push(StateEffect.appendConfig.of([snippetState, addSnippetKeymap, snippetPointerHandler, baseTheme]))
+        }
+      }
     }
     editor.dispatch(editor.state.update(spec))
   }
