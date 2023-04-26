@@ -146,12 +146,12 @@ function closedBracketAt(state: EditorState, pos: number) {
   return found
 }
 
-function nextChar(doc: Text, pos: number) {
+export function nextChar(doc: Text, pos: number) {
   let next = doc.sliceString(pos, pos + 2)
   return next.slice(0, codePointSize(codePointAt(next, 0)))
 }
 
-function prevChar(doc: Text, pos: number) {
+export function prevChar(doc: Text, pos: number) {
   let prev = doc.sliceString(pos - 2, pos)
   return codePointSize(codePointAt(prev, 0)) == prev.length ? prev : prev.slice(1)
 }
