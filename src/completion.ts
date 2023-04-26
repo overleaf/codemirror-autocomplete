@@ -244,20 +244,15 @@ export const pickedCompletion = Annotation.define<Completion>()
 /// Helper function that returns a transaction spec which inserts a
 /// completion's text in the main selection range, and any other
 /// selection range that has the same text in front of it.
-// pinned to v6.4.2 due to an issue with `to` in https://github.com/codemirror/autocomplete/commit/a4cce022daea903c8b9ffcb7ca2fb598b17bfb66
 export function insertCompletionText(state: EditorState, text: string, from: number, to: number): TransactionSpec {
+  let {main} = state.selection, len = to - from
   return {
     ...state.changeByRange(range => {
-      if (range == state.selection.main) return {
-        changes: {from: from, to: to, insert: text},
-        range: EditorSelection.cursor(from + text.length)
-      }
-      let len = to - from
-      if (!range.empty ||
-          len && state.sliceDoc(range.from - len, range.from) != state.sliceDoc(from, to))
+      if (range != main && len &&
+          state.sliceDoc(range.from - len, range.from + to - main.from) != state.sliceDoc(from, to))
         return {range}
       return {
-        changes: {from: range.from - len, to: range.from, insert: text},
+        changes: {from: range.from - len, to: to == main.from ? range.to : range.from + to - main.from, insert: text},
         range: EditorSelection.cursor(range.from - len + text.length)
       }
     }),
