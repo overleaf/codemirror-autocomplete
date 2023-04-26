@@ -1,5 +1,5 @@
 import {EditorView} from "@codemirror/view"
-import {EditorState, StateEffect, Annotation, EditorSelection, TransactionSpec} from "@codemirror/state"
+import {EditorState, StateEffect, Annotation, EditorSelection, TransactionSpec, Text} from "@codemirror/state"
 import {syntaxTree} from "@codemirror/language"
 import {SyntaxNode} from "@lezer/common"
 
@@ -45,6 +45,8 @@ export interface Completion {
   /// will appear above all sections. A string value is equivalent to
   /// a `{name}` object.
   section?: string | CompletionSection
+  /// Can be used to alter the change created when the completion is applied
+  extend?: ExtendCompletion
 }
 
 /// Object used to describe a completion
@@ -240,18 +242,32 @@ export function ensureAnchor(expr: RegExp, start: boolean) {
 /// picking a completion.
 export const pickedCompletion = Annotation.define<Completion>()
 
+export type ExtendCompletion = (state: EditorState, change: {
+  from: number
+  to: number
+  insert: string | Text
+}) => void
+
 /// Helper function that returns a transaction spec which inserts a
 /// completion's text in the main selection range, and any other
 /// selection range that has the same text in front of it.
-export function insertCompletionText(state: EditorState, text: string, from: number, to: number): TransactionSpec {
+export function insertCompletionText(state: EditorState, text: string | Text, from: number, to: number, extend?: ExtendCompletion): TransactionSpec {
   let {main} = state.selection, fromOff = from - main.from, toOff = to - main.from
   return {
     ...state.changeByRange(range => {
       if (range != main && from != to &&
           state.sliceDoc(range.from + fromOff, range.from + toOff) != state.sliceDoc(from, to))
         return {range}
+      let change = {
+        from: range.from + fromOff,
+        to: to == main.from ? range.to : range.from + toOff,
+        insert: text
+      }
+      if (extend) {
+        extend(state, change)
+      }
       return {
-        changes: {from: range.from + fromOff, to: to == main.from ? range.to : range.from + toOff, insert: text},
+        changes: change,
         range: EditorSelection.cursor(range.from + fromOff + text.length)
       }
     }),
