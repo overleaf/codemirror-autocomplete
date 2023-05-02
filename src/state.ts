@@ -61,6 +61,7 @@ function sortOptions(active: readonly ActiveSource[], state: EditorState) {
   for (let opt of options.sort((a, b) => (b.score - a.score) || compare(a.completion, b.completion))) {
     if (!prev || prev.label != opt.completion.label) result.push(opt)
     else if (score(opt.completion) > score(prev)) result[result.length - 1] = opt
+    else if (opt.completion.info) result[result.length - 1] = opt
     prev = opt.completion
   }
   return result
