@@ -62,9 +62,7 @@ function sortOptions(active: readonly ActiveSource[], state: EditorState) {
   let compare = conf.compareCompletions
   for (let opt of options.sort((a, b) => (b.score - a.score) || compare(a.completion, b.completion))) {
     let cur = opt.completion
-    if (!prev || prev.label != cur.label || prev.detail != cur.detail ||
-        (prev.type != null && cur.type != null && prev.type != cur.type) ||
-        prev.apply != cur.apply || prev.boost != cur.boost) result.push(opt)
+    if (!prev || prev.label != cur.label) result.push(opt)
     else if (score(opt.completion) > score(prev)) result[result.length - 1] = opt
     prev = opt.completion
   }
@@ -326,7 +324,7 @@ export function applyCompletion(view: EditorView, option: Option) {
 
   if (typeof apply == "string")
     view.dispatch({
-      ...insertCompletionText(view.state, apply, result.from, result.to),
+      ...insertCompletionText(view.state, apply, result.from, result.to, option.completion.extend),
       annotations: pickedCompletion.of(option.completion)
     })
   else
