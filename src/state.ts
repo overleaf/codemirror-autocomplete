@@ -1,5 +1,5 @@
 import {EditorView, Tooltip, showTooltip} from "@codemirror/view"
-import {Transaction, StateField, StateEffect, EditorState, ChangeDesc} from "@codemirror/state"
+import {Transaction, StateField, StateEffect, EditorState, ChangeDesc, MapMode} from "@codemirror/state"
 import {Option, CompletionSource, CompletionResult, cur, asSource,
         Completion, ensureAnchor, CompletionContext, CompletionSection,
         startCompletionEffect, closeCompletionEffect} from "./completion"
@@ -108,7 +108,8 @@ class CompletionDialog {
   }
 
   map(changes: ChangeDesc) {
-    return new CompletionDialog(this.options, this.attrs, {...this.tooltip, pos: changes.mapPos(this.tooltip.pos)},
+    let options = this.options.map(option => new Option(option.completion, option.source.map(changes), option.match, option.score))
+    return new CompletionDialog(options, this.attrs, {...this.tooltip, pos: changes.mapPos(this.tooltip.pos)},
                                 this.timestamp, this.selected, this.disabled)
   }
 }
@@ -258,8 +259,19 @@ export class ActiveResult extends ActiveSource {
   }
 
   map(mapping: ChangeDesc) {
-    return mapping.empty ? this :
-      new ActiveResult(this.source, this.explicitPos < 0 ? -1 : mapping.mapPos(this.explicitPos), this.result,
+    if (mapping.empty) {
+      return this
+    }
+
+    if (this.result.from !== undefined) {
+      this.result.from = mapping.mapPos(this.result.from)
+    }
+
+    if (this.result.to !== undefined) {
+      this.result.to = mapping.mapPos(this.result.to, 1)
+    }
+
+    return new ActiveResult(this.source, this.explicitPos < 0 ? -1 : mapping.mapPos(this.explicitPos), this.result,
                        mapping.mapPos(this.from), mapping.mapPos(this.to, 1))
   }
 }
