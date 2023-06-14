@@ -274,7 +274,7 @@ export function insertCompletionText(state: EditorState, text: string | Text, fr
       }
       return {
         changes: change,
-        range: EditorSelection.cursor(range.from + fromOff + text.length)
+        range: EditorSelection.cursor(change.from + change.insert.length)
       }
     }),
     userEvent: "input.complete"
