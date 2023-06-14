@@ -183,17 +183,21 @@ export function snippet(template: string) {
         }
         let originalTo = change.to
         let offset = change.insert.length + fromOff
-        if (completion.extend) {
-          completion.extend(editor.state, change)
-          offset += originalTo - change.to
-        }
         for (const fieldRange of fieldRanges) {
           ranges.push(new FieldRange(fieldRange.field, fieldRange.from + totalOffset, fieldRange.to + totalOffset))
         }
+        let result = {
+          change,
+          range: EditorSelection.cursor(change.from + change.insert.length)
+        }
+        if (completion.extend) {
+          completion.extend(editor.state, result)
+          offset += originalTo - result.change.to
+        }
         totalOffset += offset
         return {
-          changes: change,
-          range: EditorSelection.cursor(change.from + change.insert.length)
+          changes: result.change,
+          range: result.range,
         }
       }),
       scrollIntoView: true,

@@ -1,5 +1,5 @@
 import {EditorView} from "@codemirror/view"
-import {EditorState, StateEffect, Annotation, EditorSelection, TransactionSpec, Text} from "@codemirror/state"
+import {EditorState, StateEffect, Annotation, EditorSelection, TransactionSpec, Text, SelectionRange} from "@codemirror/state"
 import {syntaxTree} from "@codemirror/language"
 import {SyntaxNode} from "@lezer/common"
 
@@ -248,11 +248,16 @@ export function ensureAnchor(expr: RegExp, start: boolean) {
 /// picking a completion.
 export const pickedCompletion = Annotation.define<Completion>()
 
-export type ExtendCompletion = (state: EditorState, change: {
-  from: number
-  to: number
-  insert: string | Text
-}) => void
+type ExtendCompletionResult = {
+  change: {
+    from: number
+    to: number
+    insert: string | Text
+  },
+  range: SelectionRange
+}
+
+export type ExtendCompletion = (state: EditorState, result: ExtendCompletionResult) => void
 
 /// Helper function that returns a transaction spec which inserts a
 /// completion's text in the main selection range, and any other
@@ -264,17 +269,25 @@ export function insertCompletionText(state: EditorState, text: string | Text, fr
       if (range != main && from != to &&
           state.sliceDoc(range.from + fromOff, range.from + toOff) != state.sliceDoc(from, to))
         return {range}
+
       let change = {
         from: range.from + fromOff,
         to: to == main.from ? range.to : range.from + toOff,
         insert: text
       }
-      if (extend) {
-        extend(state, change)
-      }
-      return {
-        changes: change,
+
+      let result: ExtendCompletionResult = {
+        change,
         range: EditorSelection.cursor(range.from + fromOff + text.length)
+      }
+
+      if (extend) {
+        extend(state, result)
+      }
+
+      return {
+        changes: result.change,
+        range: result.range
       }
     }),
     userEvent: "input.complete"
