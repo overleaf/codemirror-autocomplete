@@ -299,7 +299,8 @@ export function applyCompletion(view: EditorView, option: Option) {
 
   if (typeof apply == "string")
     view.dispatch({
-      ...insertCompletionText(view.state, apply, result.from, result.to),
+      // overleaf: add extend to parameters
+      ...insertCompletionText(view.state, apply, result.from, result.to, option.completion.extend),
       annotations: pickedCompletion.of(option.completion)
     })
   else
