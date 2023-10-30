@@ -23,8 +23,8 @@ function optionContent(config: Required<CompletionConfig>): OptionContentSource[
     render(completion: Completion, _s: EditorState, match: readonly number[]) {
       let labelElt = document.createElement("span")
       labelElt.className = "cm-completionLabel"
-      let {label} = completion, off = 0
-      for (let j = 1; j < match.length;) {
+      let label = completion.displayLabel || completion.label, off = 0
+      for (let j = 0; j < match.length;) {
         let from = match[j++], to = match[j++]
         if (from > off) labelElt.appendChild(document.createTextNode(label.slice(off, from)))
         let span = labelElt.appendChild(document.createElement("span"))
@@ -64,7 +64,7 @@ class CompletionTooltip {
   dom: HTMLElement
   info: HTMLElement | null = null
   infoDestroy: (() => void) | null = null
-  list: HTMLElement
+  list!: HTMLElement
   placeInfoReq = {
     read: () => this.measureInfo(),
     write: (pos: {style?: string, class?: string} | null) => this.placeInfo(pos),
@@ -93,6 +93,7 @@ class CompletionTooltip {
     this.dom.className = "cm-tooltip-autocomplete"
     this.updateTooltipClass(view.state)
     this.dom.addEventListener("mousedown", (e: MouseEvent) => {
+      let {options} = view.state.field(stateField).open!
       for (let dom = e.target as HTMLElement | null, match; dom && dom != this.dom; dom = dom.parentNode as HTMLElement) {
         if (dom.nodeName == "LI" && (match = /-(\d+)$/.exec(dom.id)) && +match[1] < options.length) {
           this.applyCompletion(view, options[+match[1]])
@@ -107,22 +108,32 @@ class CompletionTooltip {
           e.relatedTarget != view.contentDOM)
         view.dispatch({effects: closeCompletionEffect.of(null)})
     })
-    this.list = this.dom.appendChild(this.createListBox(options, cState.id, this.range))
+    this.showOptions(options, cState.id)
+  }
+
+  mount() { this.updateSel() }
+
+  showOptions(options: readonly Option[], id: string) {
+    if (this.list) this.list.remove()
+    this.list = this.dom.appendChild(this.createListBox(options, id, this.range))
     this.list.addEventListener("scroll", () => {
       if (this.info) this.view.requestMeasure(this.placeInfoReq)
     })
   }
-
-  mount() { this.updateSel() }
 
   update(update: ViewUpdate) {
     let cState = update.state.field(this.stateField)
     let prevState = update.startState.field(this.stateField)
     this.updateTooltipClass(update.state)
     if (cState != prevState) {
+      let {options, selected, disabled} = cState.open!
+      if (!prevState.open || prevState.open.options != options) {
+         this.range = rangeAroundSelected(options.length, selected, update.state.facet(completionConfig).maxRenderedOptions)
+        this.showOptions(options, cState.id)
+      }
       this.updateSel()
-      if (cState.open?.disabled != prevState.open?.disabled)
-        this.dom.classList.toggle("cm-tooltip-autocomplete-disabled", !!cState.open?.disabled)
+      if (disabled != prevState.open?.disabled)
+        this.dom.classList.toggle("cm-tooltip-autocomplete-disabled", !!disabled)
     }
   }
 
@@ -145,11 +156,7 @@ class CompletionTooltip {
     if (open.selected > -1 && open.selected < this.range.from || open.selected >= this.range.to) {
       this.range = rangeAroundSelected(open.options.length, open.selected,
                                        this.view.state.facet(completionConfig).maxRenderedOptions)
-      this.list.remove()
-      this.list = this.dom.appendChild(this.createListBox(open.options, cState.id, this.range))
-      this.list.addEventListener("scroll", () => {
-        if (this.info) this.view.requestMeasure(this.placeInfoReq)
-      })
+      this.showOptions(open.options, cState.id)
     }
     if (this.updateSelectedOption(open.selected)) {
       this.destroyInfo()
@@ -218,7 +225,8 @@ class CompletionTooltip {
     if (selRect.top > Math.min(space.bottom, listRect.bottom) - 10 ||
         selRect.bottom < Math.max(space.top, listRect.top) + 10)
       return null
-    return this.view.state.facet(completionConfig).positionInfo(this.view, listRect, selRect, infoRect, space)
+    return (this.view.state.facet(completionConfig).positionInfo as any)(
+      this.view, listRect, selRect, infoRect, space, this.dom)
   }
 
   placeInfo(pos: {style?: string, class?: string} | null) {
@@ -281,8 +289,6 @@ class CompletionTooltip {
   }
 }
 
-// We allocate a new function instance every time the completion
-// changes to force redrawing/repositioning of the tooltip
 export function completionTooltip(stateField: StateField<CompletionState>,
                                   applyCompletion: (view: EditorView, option: Option) => void) {
   return (view: EditorView): TooltipView => new CompletionTooltip(view, stateField, applyCompletion)
@@ -291,6 +297,7 @@ export function completionTooltip(stateField: StateField<CompletionState>,
 function scrollIntoView(container: HTMLElement, element: HTMLElement) {
   let parent = container.getBoundingClientRect()
   let self = element.getBoundingClientRect()
-  if (self.top < parent.top) container.scrollTop -= parent.top - self.top
-  else if (self.bottom > parent.bottom) container.scrollTop += self.bottom - parent.bottom
+  let scaleY = parent.height / container.offsetHeight
+  if (self.top < parent.top) container.scrollTop -= (parent.top - self.top) / scaleY
+  else if (self.bottom > parent.bottom) container.scrollTop += (self.bottom - parent.bottom) / scaleY
 }

@@ -29,17 +29,16 @@ function sortOptions(active: readonly ActiveSource[], state: EditorState) {
   }
 
   for (let a of active) if (a.hasResult()) {
+    let getMatch = a.result.getMatch
     if (a.result.filter === false) {
-      let getMatch = a.result.getMatch
       for (let option of a.result.options) {
-        let match = [1e9 - options.length]
-        if (getMatch) for (let n of getMatch(option)) match.push(n)
-        addOption(new Option(option, a.source, match, match[0]))
+        addOption(new Option(option, a.source, getMatch ? getMatch(option) : [], 1e9 - options.length))
       }
     } else {
-      let matcher = new FuzzyMatcher(state.sliceDoc(a.from, a.to)), match
-      for (let option of a.result.options) if (match = matcher.match(option.label)) {
-        addOption(new Option(option, a.source, match, match[0] + (option.boost || 0)))
+      let matcher = new FuzzyMatcher(state.sliceDoc(a.from, a.to))
+      for (let option of a.result.options) if (matcher.match(option.label)) {
+        let matched = !option.displayLabel ? matcher.matched : getMatch ? getMatch(option, matcher.matched) : []
+        addOption(new Option(option, a.source, matched, matcher.score + (option.boost || 0)))
       }
     }
   }
@@ -107,7 +106,7 @@ class CompletionDialog {
     }
     return new CompletionDialog(options, makeAttrs(id, selected), {
       pos: active.reduce((a, b) => b.hasResult() ? Math.min(a, b.from) : a, 1e8),
-      create: completionTooltip(completionState, applyCompletion),
+      create: createTooltip,
       above: conf.aboveCursor,
     }, prev ? prev.timestamp : Date.now(), selected, false)
   }
@@ -307,3 +306,5 @@ export function applyCompletion(view: EditorView, option: Option) {
     apply(view, option.completion, result.from, result.to)
   return true
 }
+
+const createTooltip = completionTooltip(completionState, applyCompletion)

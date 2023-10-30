@@ -6,9 +6,14 @@ import {SyntaxNode} from "@lezer/common"
 /// Objects type used to represent individual completions.
 export interface Completion {
   /// The label to show in the completion picker. This is what input
-  /// is matched agains to determine whether a completion matches (and
+  /// is matched against to determine whether a completion matches (and
   /// how well it matches).
   label: string
+  /// An optional override for the completion's visible label. When
+  /// using this, matched characters will only be highlighted if you
+  /// provide a [`getMatch`](#autocomplete.CompletionResult.getMatch)
+  /// function.
+  displayLabel?: string
   /// An optional short piece of information to show (with a different
   /// style) after the label.
   detail?: string
@@ -211,11 +216,14 @@ export interface CompletionResult {
   /// is `false`, because it only works when filtering.
   filter?: boolean
   /// When [`filter`](#autocomplete.CompletionResult.filter) is set to
-  /// `false`, this may be provided to compute the ranges on the label
-  /// that match the input. Should return an array of numbers where
-  /// each pair of adjacent numbers provide the start and end of a
-  /// range.
-  getMatch?: (completion: Completion) => readonly number[]
+  /// `false` or a completion has a
+  /// [`displayLabel`](#autocomplete.Completion.displayLabel), this
+  /// may be provided to compute the ranges on the label that match
+  /// the input. Should return an array of numbers where each pair of
+  /// adjacent numbers provide the start and end of a range. The
+  /// second argument, the match found by the library, is only passed
+  /// when `filter` isn't `false`.
+  getMatch?: (completion: Completion, matched?: readonly number[]) => readonly number[]
   /// Synchronously update the completion result after typing or
   /// deletion. If given, this should not do any expensive work, since
   /// it will be called during editor state updates. The function
@@ -277,6 +285,7 @@ export function insertCompletionText(state: EditorState, text: string | Text, fr
         range: EditorSelection.cursor(change.from + change.insert.length)
       }
     }),
+    scrollIntoView: true,
     userEvent: "input.complete"
   }
 }

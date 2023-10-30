@@ -30,11 +30,10 @@ export function moveCompletionSelection(forward: boolean, by: "option" | "page" 
 /// Accept the current completion.
 export const acceptCompletion: Command = (view: EditorView) => {
   let cState = view.state.field(completionState, false)
-  if (view.state.readOnly || !cState || !cState.open || cState.open.selected < 0 ||
+  if (view.state.readOnly || !cState || !cState.open || cState.open.selected < 0 || cState.open.disabled ||
       Date.now() - cState.open.timestamp < view.state.facet(completionConfig).interactionDelay)
     return false
-  if (!cState.open.disabled)
-    return applyCompletion(view, cState.open.options[cState.open.selected])
+  return applyCompletion(view, cState.open.options[cState.open.selected])
   return true
 }
 
@@ -65,7 +64,7 @@ class RunningQuery {
               readonly context: CompletionContext) {}
 }
 
-const DebounceTime = 50, MaxUpdateCount = 50, MinAbortTime = 1000
+const MaxUpdateCount = 50, MinAbortTime = 1000
 
 const enum CompositionState { None, Started, Changed, ChangedAndMoved }
 
@@ -104,7 +103,7 @@ export const completionPlugin = ViewPlugin.fromClass(class implements PluginValu
 
     if (this.debounceUpdate > -1) clearTimeout(this.debounceUpdate)
     this.debounceUpdate = cState.active.some(a => a.state == State.Pending && !this.running.some(q => q.active.source == a.source))
-      ? setTimeout(() => this.startUpdate(), DebounceTime) : -1
+      ? setTimeout(() => this.startUpdate(), 50) : -1
 
     if (this.composing != CompositionState.None) for (let tr of update.transactions) {
       if (getUserEvent(tr) == "input")
@@ -140,8 +139,11 @@ export const completionPlugin = ViewPlugin.fromClass(class implements PluginValu
   }
 
   scheduleAccept() {
-    if (this.running.every(q => q.done !== undefined)) this.accept()
-    else if (this.debounceAccept < 0) this.debounceAccept = setTimeout(() => this.accept(), DebounceTime)
+    if (this.running.every(q => q.done !== undefined))
+      this.accept()
+    else if (this.debounceAccept < 0)
+      this.debounceAccept = setTimeout(() => this.accept(),
+                                       this.view.state.facet(completionConfig).updateSyncTime)
   }
 
   // For each finished query in this.running, try to create a result

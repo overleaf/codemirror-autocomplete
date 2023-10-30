@@ -1,3 +1,47 @@
+## 6.10.2 (2023-10-13)
+
+### Bug fixes
+
+Fix a bug that caused `updateSyncTime` to always delay the initial population of the tooltip.
+
+## 6.10.1 (2023-10-11)
+
+### Bug fixes
+
+Fix a bug where picking a selection with the mouse could use the wrong completion if the completion list was updated after being opened.
+
+## 6.10.0 (2023-10-11)
+
+### New features
+
+The new autocompletion configuration option `updateSyncTime` allows control over how long fast sources are held back waiting for slower completion sources.
+
+## 6.9.2 (2023-10-06)
+
+### Bug fixes
+
+Fix a bug in `completeAnyWord` that could cause it to generate invalid regular expressions and crash.
+
+## 6.9.1 (2023-09-14)
+
+### Bug fixes
+
+Make sure the cursor is scrolled into view after inserting completion text.
+
+Make sure scrolling completions into view doesn't get confused when the tooltip is scaled.
+
+## 6.9.0 (2023-07-18)
+
+### New features
+
+Completions may now provide a `displayLabel` property that overrides the way they are displayed in the completion list.
+
+## 6.8.1 (2023-06-23)
+
+### Bug fixes
+
+`acceptCompletion` now returns false (allowing other handlers to take effect) when the completion popup is open but disabled.
+
 ## 6.8.0 (2023-06-12)
 
 ### New features

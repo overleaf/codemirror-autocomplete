@@ -54,13 +54,13 @@ export interface CompletionConfig {
   /// 80.
   addToOptions?: {render: (completion: Completion, state: EditorState) => Node | null,
                   position: number}[]
-  /// By default, [info](#autocomplet.Completion.info) tooltips are
-  /// placed to the side of the selected. This option can be used to
-  /// override that. It will be given rectangles for the list of
-  /// completions, the selected option, the info element, and the
-  /// availble [tooltip space](#view.tooltips^config.tooltipSpace),
-  /// and should return style and/or class strings for the info
-  /// element.
+  /// By default, [info](#autocomplete.Completion.info) tooltips are
+  /// placed to the side of the selected completion. This option can
+  /// be used to override that. It will be given rectangles for the
+  /// list of completions, the selected option, the info element, and
+  /// the availble [tooltip
+  /// space](#view.tooltips^config.tooltipSpace), and should return
+  /// style and/or class strings for the info element.
   positionInfo?: (view: EditorView, list: Rect, option: Rect, info: Rect, space: Rect) => {style?: string, class?: string}
   /// The comparison function to use when sorting completions with the same
   /// match score. Defaults to using
@@ -71,6 +71,11 @@ export interface CompletionConfig {
   /// presses made before the user is aware of the tooltip don't go to
   /// the tooltip. This option can be used to configure that delay.
   interactionDelay?: number
+  /// When there are multiple asynchronous completion sources, this
+  /// controls how long the extension waits for a slow source before
+  /// displaying results from faster sources. Defaults to 100
+  /// milliseconds.
+  updateSyncTime?: number
 }
 
 export const completionConfig = Facet.define<CompletionConfig, Required<CompletionConfig>>({
@@ -87,9 +92,10 @@ export const completionConfig = Facet.define<CompletionConfig, Required<Completi
       aboveCursor: false,
       icons: true,
       addToOptions: [],
-      positionInfo: defaultPositionInfo,
+      positionInfo: defaultPositionInfo as any,
       compareCompletions: (a, b) => a.label.localeCompare(b.label),
-      interactionDelay: 75
+      interactionDelay: 75,
+      updateSyncTime: 100
     }, {
       defaultKeymap: (a, b) => a && b,
       closeOnBlur: (a, b) => a && b,
@@ -105,7 +111,7 @@ function joinClass(a: string, b: string) {
   return a ? b ? a + " " + b : a : b
 }
 
-function defaultPositionInfo(view: EditorView, list: Rect, option: Rect, info: Rect, space: Rect) {
+function defaultPositionInfo(view: EditorView, list: Rect, option: Rect, info: Rect, space: Rect, tooltip: HTMLElement) {
   let rtl = view.textDirection == Direction.RTL, left = rtl, narrow = false
   let side = "top", offset, maxWidth
   let spaceLeft = list.left - space.left, spaceRight = space.right - list.right
@@ -126,8 +132,10 @@ function defaultPositionInfo(view: EditorView, list: Rect, option: Rect, info: R
       offset = list.bottom - option.top
     }
   }
+  let scaleY = (list.bottom - list.top) / tooltip.offsetHeight
+  let scaleX = (list.right - list.left) / tooltip.offsetWidth
   return {
-    style: `${side}: ${offset}px; max-width: ${maxWidth}px`,
+    style: `${side}: ${offset / scaleY}px; max-width: ${maxWidth / scaleX}px`,
     class: "cm-completionInfo-" + (narrow ? (rtl ? "left-narrow" : "right-narrow") : left ? "left" : "right")
   }
 }
