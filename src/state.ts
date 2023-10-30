@@ -318,6 +318,8 @@ export const completionState = StateField.define<CompletionState>({
   ]
 })
 
+export const getCompletionTooltip = (state: EditorState): Tooltip | undefined | null => state.field(completionState, false)?.tooltip
+
 export function applyCompletion(view: EditorView, option: Option) {
   const apply = option.completion.apply || option.completion.label
   let result = view.state.field(completionState).active.find(a => a.source == option.source)
