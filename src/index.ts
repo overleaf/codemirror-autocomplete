@@ -13,6 +13,7 @@ export {Completion, CompletionInfo, CompletionSection, CompletionContext, Comple
 export {startCompletion, closeCompletion, acceptCompletion, moveCompletionSelection} from "./view"
 export {completeAnyWord} from "./word"
 export {CloseBracketConfig, closeBrackets, closeBracketsKeymap, deleteBracketPair, insertBracket, nextChar, prevChar} from "./closebrackets"
+export {getCompletionTooltip} from "./state"
 
 /// Returns an extension that enables autocompletion.
 export function autocompletion(config: CompletionConfig = {}): Extension {
