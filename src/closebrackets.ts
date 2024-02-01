@@ -51,13 +51,11 @@ closedBracket.startSide = 1; closedBracket.endSide = -1
 const bracketState = StateField.define<RangeSet<typeof closedBracket>>({
   create() { return RangeSet.empty },
   update(value, tr) {
-    if (tr.selection) {
-      let lineStart = tr.state.doc.lineAt(tr.selection.main.head).from
-      let prevLineStart = tr.startState.doc.lineAt(tr.startState.selection.main.head).from
-      if (lineStart != tr.changes.mapPos(prevLineStart, -1))
-        value = RangeSet.empty
-    }
     value = value.map(tr.changes)
+    if (tr.selection) {
+      let line = tr.state.doc.lineAt(tr.selection.main.head)
+      value = value.update({filter: from => from >= line.from && from <= line.to})
+    }
     for (let effect of tr.effects) if (effect.is(closeBracketEffect))
       value = value.update({add: [closedBracket.range(effect.value, effect.value + 1)]})
     return value

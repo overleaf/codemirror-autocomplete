@@ -7,6 +7,12 @@ export interface CompletionConfig {
   /// When enabled (defaults to true), autocompletion will start
   /// whenever the user types something that can be completed.
   activateOnTyping?: boolean
+  /// The amount of time to wait for further typing before querying
+  /// completion sources via
+  /// [`activateOnTyping`](#autocomplete.autocompletion^config.activateOnTyping).
+  /// Defaults to 100, which should be fine unless your completion
+  /// source is very slow and/or doesn't use `validFor`.
+  activateOnTypingDelay?: number
   /// By default, when completion opens, the first option is selected
   /// and can be confirmed with
   /// [`acceptCompletion`](#autocomplete.acceptCompletion). When this
@@ -52,7 +58,7 @@ export interface CompletionConfig {
   /// other added widgets and the standard content. The default icons
   /// have position 20, the label position 50, and the detail position
   /// 80.
-  addToOptions?: {render: (completion: Completion, state: EditorState) => Node | null,
+  addToOptions?: {render: (completion: Completion, state: EditorState, view: EditorView) => Node | null,
                   position: number}[]
   /// By default, [info](#autocomplete.Completion.info) tooltips are
   /// placed to the side of the selected completion. This option can
@@ -82,6 +88,7 @@ export const completionConfig = Facet.define<CompletionConfig, Required<Completi
   combine(configs) {
     return combineConfig<Required<CompletionConfig>>(configs, {
       activateOnTyping: true,
+      activateOnTypingDelay: 100,
       selectOnOpen: true,
       override: null,
       closeOnBlur: true,

@@ -1,3 +1,33 @@
+## 6.12.0 (2024-01-12)
+
+### Bug fixes
+
+Make sure snippet completions also set `userEvent` to `input.complete`.
+
+Fix a crash when the editor lost focus during an update and autocompletion was active.
+
+Fix a crash when using a snippet that has only one field, but multiple instances of that field.
+
+### New features
+
+The new `activateOnTypingDelay` option allows control over the debounce time before the completions are queried when the user types.
+
+## 6.11.1 (2023-11-27)
+
+### Bug fixes
+
+Fix a bug that caused typing over closed brackets after pressing enter to still not work in many situations.
+
+## 6.11.0 (2023-11-09)
+
+### Bug fixes
+
+Fix an issue that would prevent typing over closed brackets after starting a new line with enter.
+
+### New features
+
+Additional elements rendered in completion options with `addToOptions` are now given access to the editor view.
+
 ## 6.10.2 (2023-10-13)
 
 ### Bug fixes
