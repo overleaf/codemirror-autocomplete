@@ -52,6 +52,10 @@ export interface Completion {
   section?: string | CompletionSection
   /// Can be used to alter the change created when the completion is applied
   extend?: ExtendCompletion
+  /// If multiple sources return the same result, use this field to specifiy a
+  /// deduplication key as well as a priority. For each unique key, only the
+  /// completion with the highest priority will be shown.
+  deduplicate?: { key: string, priority: number }
 }
 
 /// The type returned from

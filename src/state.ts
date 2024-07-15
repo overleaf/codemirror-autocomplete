@@ -68,7 +68,23 @@ function sortOptions(active: readonly ActiveSource[], state: EditorState) {
     else if (opt.completion.info) result[result.length - 1] = opt
     prev = opt.completion
   }
-  return result
+  // overleaf: Deduplicate results with dedup options
+  const topPriorities = new Map<string, number>()
+  for (const opt of result) {
+    const key = opt.completion.deduplicate?.key
+    if (!key) continue
+    const currentPriority = topPriorities.get(key)
+    if (currentPriority === undefined) {
+      topPriorities.set(key, opt.completion.deduplicate.priority)
+    } else {
+      if (currentPriority < opt.completion.deduplicate.priority) {
+        topPriorities.set(key, opt.completion.deduplicate.priority)
+      }
+    }
+  }
+  return result.filter(opt => opt.completion.deduplicate
+      ? topPriorities.get(opt.completion.deduplicate.key) === opt.completion.deduplicate.priority
+      : true)
 }
 
 class CompletionDialog {
