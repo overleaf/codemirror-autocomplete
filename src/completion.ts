@@ -1,5 +1,5 @@
 import {EditorView} from "@codemirror/view"
-import {EditorState, StateEffect, Annotation, EditorSelection, TransactionSpec, Text} from "@codemirror/state"
+import {EditorState, StateEffect, Annotation, EditorSelection, TransactionSpec, Text, ChangeDesc} from "@codemirror/state"
 import {syntaxTree} from "@codemirror/language"
 import {SyntaxNode} from "@lezer/common"
 
@@ -39,6 +39,9 @@ export interface Completion {
   ///
   /// Multiple types can be provided by separating them with spaces.
   type?: string
+  /// When this option is selected, and one of these characters is
+  /// typed, insert the completion before typing the character.
+  commitCharacters?: readonly string[],
   /// When given, should be a number from -99 to 99 that adjusts how
   /// this completion is ranked compared to other completions that
   /// match the input as well as this one. A negative number moves it
@@ -86,6 +89,8 @@ export interface CompletionSection {
 export class CompletionContext {
   /// @internal
   abortListeners: (() => void)[] | null = []
+  /// @internal
+  abortOnDocChange = false
 
   /// Create a new completion context. (Mostly useful for testing
   /// completion sources—in the editor, the extension will create
@@ -99,7 +104,13 @@ export class CompletionContext {
     /// implicitly by typing. The usual way to respond to this is to
     /// only return completions when either there is part of a
     /// completable entity before the cursor, or `explicit` is true.
-    readonly explicit: boolean
+    readonly explicit: boolean,
+    /// The editor view. May be undefined if the context was created
+    /// in a situation where there is no such view available, such as
+    /// in synchronous updates via
+    /// [`CompletionResult.update`](#autocomplete.CompletionResult.update)
+    /// or when called by test code.
+    readonly view?: EditorView
   ) {}
 
   /// Get the extent, content, and (if there is a token) type of the
@@ -129,8 +140,19 @@ export class CompletionContext {
   /// Allows you to register abort handlers, which will be called when
   /// the query is
   /// [aborted](#autocomplete.CompletionContext.aborted).
-  addEventListener(type: "abort", listener: () => void) {
-    if (type == "abort" && this.abortListeners) this.abortListeners.push(listener)
+  ///
+  /// By default, running queries will not be aborted for regular
+  /// typing or backspacing, on the assumption that they are likely to
+  /// return a result with a
+  /// [`validFor`](#autocomplete.CompletionResult.validFor) field that
+  /// allows the result to be used after all. Passing `onDocChange:
+  /// true` will cause this query to be aborted for any document
+  /// change.
+  addEventListener(type: "abort", listener: () => void, options?: {onDocChange: boolean}) {
+    if (type == "abort" && this.abortListeners) {
+      this.abortListeners.push(listener)
+      if (options && options.onDocChange) this.abortOnDocChange = true
+    }
   }
 }
 
@@ -235,6 +257,16 @@ export interface CompletionResult {
   /// [`validFor`](#autocomplete.CompletionResult.validFor)) that the
   /// completion still applies in the new state.
   update?: (current: CompletionResult, from: number, to: number, context: CompletionContext) => CompletionResult | null
+  /// When results contain position-dependent information in, for
+  /// example, `apply` methods, you can provide this method to update
+  /// the result for transactions that happen after the query. It is
+  /// not necessary to update `from` and `to`—those are tracked
+  /// automatically.
+  map?: (current: CompletionResult, changes: ChangeDesc) => CompletionResult | null
+  /// Set a default set of [commit
+  /// characters](#autocomplete.Completion.commitCharacters) for all
+  /// options in this result.
+  commitCharacters?: readonly string[]
 }
 
 export class Option {

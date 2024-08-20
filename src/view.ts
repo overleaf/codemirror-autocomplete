@@ -1,8 +1,8 @@
 import {EditorView, Command, ViewPlugin, PluginValue, ViewUpdate, logException,
         getTooltip, TooltipView} from "@codemirror/view"
-import {Transaction} from "@codemirror/state"
+import {Transaction, Prec} from "@codemirror/state"
 import {completionState, setSelectedEffect, setActiveEffect, State,
-        ActiveSource, ActiveResult, getUserEvent, applyCompletion} from "./state"
+        ActiveSource, ActiveResult, getUpdateType, UpdateType, applyCompletion} from "./state"
 import {completionConfig} from "./config"
 import {cur, CompletionResult, CompletionContext, startCompletionEffect, closeCompletionEffect} from "./completion"
 
@@ -82,14 +82,17 @@ export const completionPlugin = ViewPlugin.fromClass(class implements PluginValu
 
   update(update: ViewUpdate) {
     let cState = update.state.field(completionState)
+    let conf = update.state.facet(completionConfig)
     if (!update.selectionSet && !update.docChanged && update.startState.field(completionState) == cState) return
 
     let doesReset = update.transactions.some(tr => {
-      return (tr.selection || tr.docChanged) && !getUserEvent(tr)
+      let type = getUpdateType(tr, conf)
+      return (type & UpdateType.Reset) || (tr.selection || tr.docChanged) && !(type & UpdateType.SimpleInteraction)
     })
     for (let i = 0; i < this.running.length; i++) {
       let query = this.running[i]
       if (doesReset ||
+          query.context.abortOnDocChange && update.docChanged ||
           query.updates.length + update.transactions.length > MaxUpdateCount && Date.now() - query.time > MinAbortTime) {
         for (let handler of query.context.abortListeners!) {
           try { handler() }
@@ -104,12 +107,12 @@ export const completionPlugin = ViewPlugin.fromClass(class implements PluginValu
 
     if (this.debounceUpdate > -1) clearTimeout(this.debounceUpdate)
     if (update.transactions.some(tr => tr.effects.some(e => e.is(startCompletionEffect)))) this.pendingStart = true
-    let delay = this.pendingStart ? 50 : update.state.facet(completionConfig).activateOnTypingDelay
+    let delay = this.pendingStart ? 50 : conf.activateOnTypingDelay
     this.debounceUpdate = cState.active.some(a => a.state == State.Pending && !this.running.some(q => q.active.source == a.source))
       ? setTimeout(() => this.startUpdate(), delay) : -1
 
     if (this.composing != CompositionState.None) for (let tr of update.transactions) {
-      if (getUserEvent(tr) == "input")
+      if (tr.isUserEvent("input.type"))
         this.composing = CompositionState.Changed
       else if (this.composing == CompositionState.Changed && tr.selection)
         this.composing = CompositionState.ChangedAndMoved
@@ -128,7 +131,7 @@ export const completionPlugin = ViewPlugin.fromClass(class implements PluginValu
 
   startQuery(active: ActiveSource) {
     let {state} = this.view, pos = cur(state)
-    let context = new CompletionContext(state, pos, active.explicitPos == pos)
+    let context = new CompletionContext(state, pos, active.explicitPos == pos, this.view)
     let pending = new RunningQuery(active, context)
     this.running.push(pending)
     Promise.resolve(active.source(context)).then(result => {
@@ -216,3 +219,20 @@ export const completionPlugin = ViewPlugin.fromClass(class implements PluginValu
     }
   }
 })
+
+const windows = typeof navigator == "object" && /Win/.test(navigator.platform)
+
+export const commitCharacters = Prec.highest(EditorView.domEventHandlers({
+  keydown(event, view) {
+    let field = view.state.field(completionState, false)
+    if (!field || !field.open || field.open.disabled || field.open.selected < 0 ||
+        event.key.length > 1 || event.ctrlKey && !(windows && event.altKey) || event.metaKey)
+      return false
+    let option = field.open.options[field.open.selected]
+    let result = field.active.find(a => a.source == option.source) as ActiveResult
+    let commitChars = option.completion.commitCharacters || result.result.commitCharacters
+    if (commitChars && commitChars.indexOf(event.key) > -1)
+      applyCompletion(view, option)
+    return false
+  }
+}))

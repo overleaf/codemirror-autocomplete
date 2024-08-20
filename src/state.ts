@@ -4,7 +4,7 @@ import {Option, CompletionSource, CompletionResult, cur, asSource,
         Completion, ensureAnchor, CompletionContext, CompletionSection,
         startCompletionEffect, closeCompletionEffect,
         insertCompletionText, pickedCompletion} from "./completion"
-import {FuzzyMatcher} from "./filter"
+import {FuzzyMatcher, StrictMatcher} from "./filter"
 import {completionTooltip} from "./tooltip"
 import {CompletionConfig, completionConfig} from "./config"
 
@@ -28,6 +28,7 @@ function sortOptions(active: readonly ActiveSource[], state: EditorState) {
     }
   }
 
+  let conf = state.facet(completionConfig)
   for (let a of active) if (a.hasResult()) {
     let getMatch = a.result.getMatch
     if (a.result.filter === false) {
@@ -35,10 +36,11 @@ function sortOptions(active: readonly ActiveSource[], state: EditorState) {
         addOption(new Option(option, a.source, getMatch ? getMatch(option) : [], 1e9 - options.length))
       }
     } else {
-      let matcher = new FuzzyMatcher(state.sliceDoc(a.from, a.to))
-      for (let option of a.result.options) if (matcher.match(option.label)) {
-        let matched = !option.displayLabel ? matcher.matched : getMatch ? getMatch(option, matcher.matched) : []
-        addOption(new Option(option, a.source, matched, matcher.score + (option.boost || 0)))
+      let pattern = state.sliceDoc(a.from, a.to), match
+      let matcher = conf.filterStrict ? new StrictMatcher(pattern) : new FuzzyMatcher(pattern)
+      for (let option of a.result.options) if (match = matcher.match(option.label)) {
+        let matched = !option.displayLabel ? match.matched : getMatch ? getMatch(option, match.matched) : []
+        addOption(new Option(option, a.source, matched, match.score + (option.boost || 0)))
       }
     }
   }
@@ -57,7 +59,7 @@ function sortOptions(active: readonly ActiveSource[], state: EditorState) {
   }
 
   let result = [], prev = null
-  let compare = state.facet(completionConfig).compareCompletions
+  let compare = conf.compareCompletions
   for (let opt of options.sort((a, b) => (b.score - a.score) || compare(a.completion, b.completion))) {
     // overleaf: only compare the label when deduplicating adjacent results
     if (!prev || prev.label != opt.completion.label) result.push(opt)
@@ -170,7 +172,7 @@ export class CompletionState {
 
   get tooltip(): Tooltip | null { return this.open ? this.open.tooltip : null }
 
-  get attrs() { return this.open ? this.open.attrs : baseAttrs }
+  get attrs() { return this.open ? this.open.attrs : this.active.length ? baseAttrs : noAttrs }
 }
 
 function sameResults(a: readonly ActiveSource[], b: readonly ActiveSource[]) {
@@ -188,6 +190,8 @@ const baseAttrs = {
   "aria-autocomplete": "list"
 }
 
+const noAttrs = {}
+
 function makeAttrs(id: string, selected: number) {
   let result: {[name: string]: string} = {
     "aria-autocomplete": "list",
@@ -202,8 +206,27 @@ const none: readonly any[] = []
 
 export const enum State { Inactive = 0, Pending = 1, Result = 2 }
 
-export function getUserEvent(tr: Transaction): "input" | "delete" | null {
-  return tr.isUserEvent("input.type") ? "input" : tr.isUserEvent("delete.backward") ? "delete" : null
+export const enum UpdateType {
+  None = 0,
+  Typing = 1,
+  Backspacing = 2,
+  SimpleInteraction = Typing | Backspacing,
+  Activate = 4,
+  Reset = 8,
+  ResetIfTouching = 16
+}
+  
+export function getUpdateType(tr: Transaction, conf: Required<CompletionConfig>): UpdateType {
+  if (tr.isUserEvent("input.complete")) {
+    let completion = tr.annotation(pickedCompletion)
+    if (completion && conf.activateOnCompletion(completion)) return UpdateType.Activate | UpdateType.Reset
+  }
+  let typing = tr.isUserEvent("input.type")
+  return typing && conf.activateOnTyping ? UpdateType.Activate | UpdateType.Typing
+    : typing ? UpdateType.Typing
+    : tr.isUserEvent("delete.backward") ? UpdateType.Backspacing
+    : tr.selection ? UpdateType.Reset
+    : tr.docChanged ? UpdateType.ResetIfTouching : UpdateType.None
 }
 
 export class ActiveSource {
@@ -214,13 +237,12 @@ export class ActiveSource {
   hasResult(): this is ActiveResult { return false }
 
   update(tr: Transaction, conf: Required<CompletionConfig>): ActiveSource {
-    let event = getUserEvent(tr), value: ActiveSource = this
-    if (event)
-      value = value.handleUserEvent(tr, event, conf)
-    else if (tr.docChanged)
-      value = value.handleChange(tr)
-    else if (tr.selection && value.state != State.Inactive)
+    let type = getUpdateType(tr, conf), value: ActiveSource = this
+    if ((type & UpdateType.Reset) || (type & UpdateType.ResetIfTouching) && this.touches(tr))
       value = new ActiveSource(value.source, State.Inactive)
+    if ((type & UpdateType.Activate) && value.state == State.Inactive)
+      value = new ActiveSource(this.source, State.Pending)
+    value = value.updateFor(tr, type)
 
     for (let effect of tr.effects) {
       if (effect.is(startCompletionEffect))
@@ -233,16 +255,14 @@ export class ActiveSource {
     return value
   }
 
-  handleUserEvent(tr: Transaction, type: "input" | "delete", conf: Required<CompletionConfig>): ActiveSource {
-    return type == "delete" || !conf.activateOnTyping ? this.map(tr.changes) : new ActiveSource(this.source, State.Pending)
-  }
-
-  handleChange(tr: Transaction): ActiveSource {
-    return tr.changes.touchesRange(cur(tr.startState)) ? new ActiveSource(this.source, State.Inactive) : this.map(tr.changes)
-  }
+  updateFor(tr: Transaction, type: UpdateType): ActiveSource { return this.map(tr.changes) }
 
   map(changes: ChangeDesc) {
     return changes.empty || this.explicitPos < 0 ? this : new ActiveSource(this.source, this.state, changes.mapPos(this.explicitPos))
+  }
+
+  touches(tr: Transaction) {
+    return tr.changes.touchesRange(cur(tr.state))
   }
 }
 
@@ -257,30 +277,35 @@ export class ActiveResult extends ActiveSource {
 
   hasResult(): this is ActiveResult { return true }
 
-  handleUserEvent(tr: Transaction, type: "input" | "delete", conf: Required<CompletionConfig>): ActiveSource {
+  updateFor(tr: Transaction, type: UpdateType) {
+    if (!(type & UpdateType.SimpleInteraction)) return this.map(tr.changes)
+    let result = this.result as CompletionResult | null
+    if (result!.map && !tr.changes.empty) result = result!.map(result!, tr.changes)
     let from = tr.changes.mapPos(this.from), to = tr.changes.mapPos(this.to, 1)
     let pos = cur(tr.state)
     if ((this.explicitPos < 0 ? pos <= from : pos < this.from) ||
-        pos > to ||
-        type == "delete" && cur(tr.startState) == this.from)
-      return new ActiveSource(this.source, type == "input" && conf.activateOnTyping ? State.Pending : State.Inactive)
-    let explicitPos = this.explicitPos < 0 ? -1 : tr.changes.mapPos(this.explicitPos), updated
-    if (checkValid(this.result.validFor, tr.state, from, to))
-      return new ActiveResult(this.source, explicitPos, this.result, from, to)
-    if (this.result.update &&
-        (updated = this.result.update(this.result, from, to, new CompletionContext(tr.state, pos, explicitPos >= 0))))
-      return new ActiveResult(this.source, explicitPos, updated, updated.from, updated.to ?? cur(tr.state))
+        pos > to || !result ||
+        (type & UpdateType.Backspacing) && cur(tr.startState) == this.from)
+      return new ActiveSource(this.source, type & UpdateType.Activate ? State.Pending : State.Inactive)
+    let explicitPos = this.explicitPos < 0 ? -1 : tr.changes.mapPos(this.explicitPos)
+    if (checkValid(result.validFor, tr.state, from, to))
+      return new ActiveResult(this.source, explicitPos, result, from, to)
+    if (result.update &&
+        (result = result.update(result, from, to, new CompletionContext(tr.state, pos, explicitPos >= 0))))
+      return new ActiveResult(this.source, explicitPos, result, result.from, result.to ?? cur(tr.state))
     return new ActiveSource(this.source, State.Pending, explicitPos)
   }
 
-  handleChange(tr: Transaction): ActiveSource {
-    return tr.changes.touchesRange(this.from, this.to) ? new ActiveSource(this.source, State.Inactive) : this.map(tr.changes)
+  map(mapping: ChangeDesc) {
+    if (mapping.empty) return this
+    let result = this.result.map ? this.result.map(this.result, mapping) : this.result
+    if (!result) return new ActiveSource(this.source, State.Inactive)
+    return new ActiveResult(this.source, this.explicitPos < 0 ? -1 : mapping.mapPos(this.explicitPos), this.result,
+                            mapping.mapPos(this.from), mapping.mapPos(this.to, 1))
   }
 
-  map(mapping: ChangeDesc) {
-    return mapping.empty ? this :
-      new ActiveResult(this.source, this.explicitPos < 0 ? -1 : mapping.mapPos(this.explicitPos), this.result,
-                       mapping.mapPos(this.from), mapping.mapPos(this.to, 1))
+  touches(tr: Transaction) {
+    return tr.changes.touchesRange(this.from, this.to)
   }
 }
 
