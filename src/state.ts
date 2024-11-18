@@ -33,7 +33,8 @@ function sortOptions(active: readonly ActiveSource[], state: EditorState) {
     let getMatch = a.result.getMatch
     if (a.result.filter === false) {
       for (let option of a.result.options) {
-        addOption(new Option(option, a.source, getMatch ? getMatch(option) : [], 1e9 - options.length))
+        let defaultScore = conf.unfilteredResultsAtEnd ? -1e9 : 1e9
+        addOption(new Option(option, a.source, getMatch ? getMatch(option) : [], defaultScore - options.length))
       }
     } else {
       let pattern = state.sliceDoc(a.from, a.to), match
