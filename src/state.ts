@@ -60,31 +60,41 @@ function sortOptions(active: readonly ActiveSource[], state: EditorState) {
   }
 
   let result = [], prev = null
+  const priorityIndices = new Map<string, number>()
   let compare = conf.compareCompletions
   for (let opt of options.sort((a, b) => (b.score - a.score) || compare(a.completion, b.completion))) {
+    // overleaf: Deduplicate results with dedup options
+    //           The goal is to keep only the highest priority option, in the
+    //           highest scoring position.
+    const key = opt.completion.deduplicate?.key
+    if (key) {
+      // Handle merging specifically for deduplicated items item
+      const currentOptionIndex = priorityIndices.get(key)
+      if (currentOptionIndex === undefined) {
+        priorityIndices.set(key, result.length)
+        result.push(opt)
+        prev = opt.completion
+      } else {
+        if (result[currentOptionIndex].completion.deduplicate.priority < opt.completion.deduplicate.priority) {
+          result[currentOptionIndex] = opt
+          if (currentOptionIndex === result.length - 1) {
+            prev = opt.completion
+          }
+        }
+      }
+      continue
+    }
+    // overleaf: end
     let cur = opt.completion
     if (!prev || prev.label != cur.label) result.push(opt)
+    // overleaf: we're already handling deduplication, so skip extra merges
+    else if (prev.deduplicate) result.push(opt)
     else if (score(opt.completion) > score(prev)) result[result.length - 1] = opt
     else if (opt.completion.info) result[result.length - 1] = opt
     prev = opt.completion
   }
-  // overleaf: Deduplicate results with dedup options
-  const topPriorities = new Map<string, number>()
-  for (const opt of result) {
-    const key = opt.completion.deduplicate?.key
-    if (!key) continue
-    const currentPriority = topPriorities.get(key)
-    if (currentPriority === undefined) {
-      topPriorities.set(key, opt.completion.deduplicate.priority)
-    } else {
-      if (currentPriority < opt.completion.deduplicate.priority) {
-        topPriorities.set(key, opt.completion.deduplicate.priority)
-      }
-    }
-  }
-  return result.filter(opt => opt.completion.deduplicate
-      ? topPriorities.get(opt.completion.deduplicate.key) === opt.completion.deduplicate.priority
-      : true)
+
+  return result
 }
 
 class CompletionDialog {
