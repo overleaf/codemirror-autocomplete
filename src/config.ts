@@ -90,6 +90,8 @@ export interface CompletionConfig {
   /// displaying results from faster sources. Defaults to 100
   /// milliseconds.
   updateSyncTime?: number
+  /// overleaf: Move unfiltered results after the filtered ones
+  unfilteredResultsAtEnd?: boolean
 }
 
 export const completionConfig = Facet.define<CompletionConfig, Required<CompletionConfig>>({
@@ -112,7 +114,9 @@ export const completionConfig = Facet.define<CompletionConfig, Required<Completi
       filterStrict: false,
       compareCompletions: (a, b) => a.label.localeCompare(b.label),
       interactionDelay: 75,
-      updateSyncTime: 100
+      updateSyncTime: 100,
+      // overleaf: default to at top which is default CM6 behaviour
+      unfilteredResultsAtEnd: false
     }, {
       defaultKeymap: (a, b) => a && b,
       closeOnBlur: (a, b) => a && b,
