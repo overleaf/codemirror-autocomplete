@@ -118,8 +118,9 @@ class CompletionDialog {
     conf: Required<CompletionConfig>,
     didSetActive: boolean
   ): CompletionDialog | null {
-    if (prev && !didSetActive && active.some(s => s.isPending))
-      return prev.setDisabled()
+    // Overleaf: avoid setting the previous completion state to disabled while completion sources are pending
+    // if (prev && !didSetActive && active.some(s => s.isPending))
+    //   return prev.setDisabled()
     let options = sortOptions(active, state)
     if (!options.length)
       return prev && active.some(a => a.isPending) ? prev.setDisabled() : null
